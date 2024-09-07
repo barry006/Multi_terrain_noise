@@ -1,0 +1,151 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class TerrainNoiseGeneration : MonoBehaviour
+{
+    [SerializeField, Tooltip("L'échelle du bruit affecte la taille des motifs du Perlin Noise. Une valeur plus élevée rend les motifs plus grands.")]
+    float noiseScale = 4.2f;
+
+    [SerializeField, Tooltip("Nombre d'octaves pour le bruit. Chaque octave ajoute plus de détails au bruit à différentes échelles.")]
+    float octaves = 4;
+
+    [SerializeField, Tooltip("Contrôle l'amplitude des octaves successives. Une valeur plus élevée rend chaque octave moins influente.")]
+    float persistence = 0.5f;
+
+    [SerializeField, Tooltip("Ajuste l'augmentation de la fréquence entre les octaves. Une valeur plus élevée augmente les détails à chaque octave.")]
+    float lacunarity = 2.0f;
+
+    [SerializeField, Tooltip("Décalage global appliqué à l'ensemble du bruit pour déplacer la génération à différentes coordonnées.")]
+    Vector2 globalOffset;
+
+    [SerializeField, Tooltip("Multiplie les hauteurs générées pour ajuster l'altitude du terrain.")]
+    float heightMultiplier = 1.0f;
+
+    [SerializeField, Tooltip("Inverser les hauteurs pour obtenir des creux au lieu de montagnes.")]
+    bool invertHeights = false;
+
+    [SerializeField, Tooltip("Valeur de départ pour l'amplitude du bruit.")]
+    float baseAmplitude = 1.0f;
+
+    [SerializeField, Tooltip("Valeur de départ pour la fréquence du bruit.")]
+    float baseFrequency = 1.0f;
+
+    [SerializeField, Tooltip("Utiliser une graine pour générer un bruit cohérent et reproductible.")]
+    int noiseSeed = 0;
+
+    [SerializeField, Tooltip("Liste des terrains sur lesquels le bruit Perlin sera appliqué.")]
+    List<Terrain> myTerrainList;
+
+
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        UnityEditor.EditorApplication.delayCall += _OnValidate;
+    }
+
+    private void _OnValidate()
+    {
+        UnityEditor.EditorApplication.delayCall -= _OnValidate;
+        if (this == null) return;
+        if (myTerrainList != null && myTerrainList.Count > 0)
+        {
+            SetTerrainNoise();
+        }
+    }
+#endif
+
+
+    public float terrainHeights = 50;
+    void SetTerrainNoise()
+    {
+        foreach (var terrain in myTerrainList)
+        {
+            if(terrain == null) continue;
+            terrain.terrainData.size = new Vector3(terrain.terrainData.size.x, terrainHeights, terrain.terrainData.size.z);        
+
+
+            Vector2 offset = CalculateOffsets(terrain.transform.position, terrain.terrainData.size, terrain.terrainData.heightmapResolution);
+            float[,] heightArray = GeneratePerlinNoise(terrain.terrainData.heightmapResolution, offset.x, offset.y);
+
+            terrain.terrainData.SetHeights(0, 0, heightArray);
+        }
+    }
+
+    float[,] GeneratePerlinNoiseSimple(int resolution, float offsetX, float offsetZ)
+    {
+        float[,] heights = new float[resolution, resolution];
+
+        for (int z = 0; z < resolution; z++)
+        {
+            for (int x = 0; x < resolution; x++)
+            {
+                float amplitude = 1;
+                float frequency = 1;
+                float noiseHeight = 0;
+
+                // Calcul multi-octave
+                for (int i = 0; i < octaves; i++)
+                {
+                    float sampleX = (x + offsetX + globalOffset.x) / (resolution - 1) * frequency * noiseScale;
+                    float sampleZ = (z + offsetZ + globalOffset.y) / (resolution - 1) * frequency * noiseScale;
+
+                    float perlinValue = Mathf.PerlinNoise(sampleX, sampleZ) * 2 - 1; // Génère des valeurs entre -1 et 1
+                    noiseHeight += perlinValue * amplitude;
+
+                    amplitude *= persistence;
+                    frequency *= lacunarity;
+                }
+
+                heights[z, x] = Mathf.Clamp01(noiseHeight);  // Garde les valeurs entre 0 et 1
+            }
+        }
+
+        return heights;
+    }
+    float[,] GeneratePerlinNoise(int resolution, float offsetX, float offsetZ)
+    {
+        float[,] heights = new float[resolution, resolution];
+
+        for (int z = 0; z < resolution; z++)
+        {
+            for (int x = 0; x < resolution; x++)
+            {
+                float amplitude = baseAmplitude;
+                float frequency = baseFrequency;
+                float noiseHeight = 0;
+
+                for (int i = 0; i < octaves; i++)
+                {
+                    float sampleX = (x + offsetX + globalOffset.x) / (resolution - 1) * frequency * noiseScale;
+                    float sampleZ = (z + offsetZ + globalOffset.y) / (resolution - 1) * frequency * noiseScale;
+
+                    float perlinValue = Mathf.PerlinNoise(sampleX + noiseSeed, sampleZ + noiseSeed) * 2 - 1;
+                    noiseHeight += perlinValue * amplitude;
+
+                    amplitude *= persistence;
+                    frequency *= lacunarity;
+                }
+
+                // Multiplier les hauteurs et éventuellement inverser
+                noiseHeight = noiseHeight * heightMultiplier;
+                if (invertHeights)
+                {
+                    noiseHeight = -noiseHeight;
+                }
+
+                heights[z, x] = Mathf.Clamp01(noiseHeight);  // Garde les valeurs entre 0 et 1
+            }
+        }
+
+        return heights;
+    }
+
+    Vector2 CalculateOffsets(Vector3 position, Vector3 terrainSize, int resolution)
+    {
+        float offsetX = (position.x / terrainSize.x) * (resolution - 1);
+        float offsetZ = (position.z / terrainSize.z) * (resolution - 1);
+        return new Vector2(offsetX, offsetZ);
+    }
+}
